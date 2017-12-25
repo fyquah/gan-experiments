@@ -77,6 +77,7 @@ class LivePlotter(object):
             self._line.set_ydata(self._y)
 
 def main():
+    minibatch_size = 60
     g_input_size = 1  # some source of noise
     g_hidden_size = 100
     g_output_size = 1
@@ -110,18 +111,30 @@ def main():
             D.zero_grad()
 
             # 1A. Training on real data
-            d_real_data = autograd.Variable(get_real_input_data(d_input_size))
-            d_real_decision = D(preprocess(d_real_data.t()))
-            d_real_error = criterion(d_real_decision, autograd.Variable(torch.ones(1, 1)))
+            d_real_data = autograd.Variable(get_real_input_data(
+                    minibatch_size * d_input_size))
+            d_real_decision = D(preprocess(d_real_data.view(minibatch_size, d_input_size)))
+            d_real_error = criterion(
+                    d_real_decision,
+                    autograd.Variable(torch.ones(minibatch_size, 1))
+            )
             d_real_error.backward()
+            d_real_accuracy = float(
+                    torch.sum(torch.sum(d_real_decision > 0.5)) / minibatch_size) 
 
             # 1B. Training on fake data
             generator_seed = torch_utils.from_numpy(
-                    np.random.rand(d_input_size, g_input_size)).float()
+                    np.random.rand(minibatch_size * d_input_size, g_input_size)).float()
             d_fake_data = G(autograd.Variable(generator_seed)).detach()
-            d_fake_decision = D(preprocess(d_fake_data.t()))
-            d_fake_error = criterion(d_fake_decision, autograd.Variable(torch.zeros(1, 1)))
+            d_fake_decision = D(preprocess(d_fake_data.view(minibatch_size, d_input_size)))
+            d_fake_error = criterion(
+                    d_fake_decision,
+                    autograd.Variable(torch.zeros(minibatch_size, 1))
+            )
             d_fake_error.backward()
+            d_fake_accuracy = float(
+                    torch.sum(torch.sum(d_fake_decision <= 0.5))
+                    / minibatch_size)
 
             d_optimizer.step()
 
@@ -129,16 +142,16 @@ def main():
             G.zero_grad()
 
             generator_seed = torch_utils.from_numpy(
-                    np.random.rand(d_input_size, g_input_size)).float()
+                    np.random.rand(d_input_size * minibatch_size, g_input_size)).float()
             g_fake_data = G(autograd.Variable(generator_seed))
-            dg_fake_decision = D(preprocess(g_fake_data.t()))
-            g_error = criterion(dg_fake_decision, autograd.Variable(torch.ones(1, 1)))
+            dg_fake_decision = D(preprocess(g_fake_data.view(minibatch_size, d_input_size)))
+            g_error = criterion(dg_fake_decision, autograd.Variable(torch.ones(minibatch_size, 1)))
 
             g_error.backward()
             g_optimizer.step()
 
-        print("Epoch = %d G_loss = %.3f D_loss (fake) = %.3f D_loss (real) = %.3f"
-                % (epoch, g_error, d_fake_error, d_real_error))
+        print("Epoch = %d G_loss = %.3f D_loss (fake) = %.3f [%.3f] D_loss (real) = %.3f [%.3f]"
+                % (epoch, g_error, d_fake_error, d_fake_accuracy, d_real_error, d_real_accuracy))
 
         # g_loss_plot.add_point(epoch, float(g_error))
         # d_loss_plot.add_point(epoch, float((d_real_error + d_fake_error) / 2.0))
